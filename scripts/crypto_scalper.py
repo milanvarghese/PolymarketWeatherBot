@@ -86,15 +86,16 @@ SCALPER_CONFIG = {
     # Bankroll
     "bankroll": 50.00,
     "max_position_usd": 4.00,       # Smaller per-trade, spread across more pairs
-    "max_open_positions": 8,         # More concurrent positions for wider universe
+    "max_open_positions": 3,         # 2026-05-15: tightened from 8 after -34% live drawdown
     "max_exposure_pct": 0.75,        # 75% of bankroll at risk
     # Confluence requirements (v3.3: raised from 6 to 7 — backtest: 59.6% WR vs 52% at score=6)
-    "min_confluence_score": 5,       # Require 5+ confluence for entry (7 too restrictive in low-vol bear)
+    "min_confluence_score": 7,       # 2026-05-15: hard-coded 7 after live data showed 41% WR with score=5/6
     "min_signal_quality": "C",       # Accept C-grade+ signals
-    "min_ranging_score": 5,          # Higher bar in ranging markets (backtest: 11% WR otherwise)
-    # Pair whitelist: only trade backtest-validated profitable pairs
-    # Set to None/empty to trade all pairs from dynamic discovery
-    "pair_whitelist": ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "AVAX", "LINK", "ATOM", "SUI", "NEAR", "INJ", "ARB", "OP", "FET", "RENDER", "SEI", "APT", "TIA", "TAO", "PEPE", "SHIB", "WIF", "BONK", "DOT", "MATIC", "LTC", "UNI", "AAVE", "MKR"],
+    "min_ranging_score": 7,          # 2026-05-15: matched to min_confluence_score
+    # Pair whitelist: data-validated winners only (live 50-day perf 2026-05-15)
+    # Kept: pairs with WR >=47% AND n>=15 AND PnL>=$0 on live trading
+    # Removed: BTC (50% WR n=30 but -$0.09), ETH/DOGE/LINK/SOL/NEAR/APT/XRP/etc (all losing)
+    "pair_whitelist": ["AVAX", "SEI", "INJ", "ATOM", "SUI", "ADA"],
     # Regime-adaptive thresholds
     "adx_trending": 25,              # ADX > 25 = trending
     "adx_ranging": 20,               # ADX < 20 = ranging

@@ -257,6 +257,22 @@ class PaperTrader:
             logger.info(f"Skip: reopen cooldown ({mins_left:.0f}m remaining) for {opp.market_question[:40]}")
             return False
 
+        # 2026-05-15: time-to-resolution filter. Live data showed bot was buying
+        # Dec-2026 crypto markets in March, locking capital for 9 months with
+        # never-resolved closes at pnl=0. Cap "crypto" and "event" categories at
+        # 30 days; "near_expiry" is already capped at 2 days; "dutch_book" exempt
+        # (those have their own time horizon based on the arb structure).
+        if opp.category in ("crypto", "event") and opp.end_date:
+            try:
+                end_dt = datetime.strptime(opp.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                days_left = (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400
+                max_days = CONFIG.get("max_days_to_resolution", 30)
+                if days_left > max_days:
+                    logger.info(f"Skip: {days_left:.0f}d to resolution > {max_days}d cap for {opp.market_question[:40]}")
+                    return False
+            except (ValueError, TypeError):
+                pass
+
         # Dynamic Kelly + Drawdown multiplier
         dynamic_kelly = self._get_dynamic_kelly()
         adjusted_size = opp.kelly_size * dd_mult * (dynamic_kelly / CONFIG["kelly_fraction"]) if CONFIG["kelly_fraction"] > 0 else opp.kelly_size
@@ -451,8 +467,14 @@ class PaperTrader:
         # Track CLV for edge validation
         clv = round(exit_price - pos["entry_price"], 4)
 
-        # For Brier score: 1.0 if our predicted side won, 0.0 if it lost
-        actual_outcome = 1.0 if pnl > 0 else 0.0
+        # 2026-05-15: only set actual_outcome on resolution-based exits.
+        # Early exits (edge_reversal/trailing_stop/stop_loss/manual) are NOT
+        # ground truth — recording pnl=0 closes as actual_outcome=0.0 was
+        # corrupting the Brier score and dynamic-Kelly calibration.
+        if reason in ("expired", "target_hit", "kill_switch"):
+            actual_outcome = 1.0 if pnl > 0 else 0.0
+        else:
+            actual_outcome = None  # Position closed before resolution; outcome unknown
 
         self.state.bankroll += pos["cost_usd"] + pnl
         self.state.total_pnl += pnl

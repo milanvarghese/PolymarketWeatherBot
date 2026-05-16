@@ -1850,7 +1850,8 @@ class StockTrader:
         self.state.positions = [p for p in self.state.positions if p["id"] != pos["id"]]
 
         self._save_state()
-        self._log_trade("CLOSE", {**pos, "price": price})
+        # 2026-05-15: write the exit reason into signal_type so closed-trade CSV is diagnosable
+        self._log_trade("CLOSE", {**pos, "price": price, "signal_type": reason})
         self._log_analytics(pos)
 
         logger.info(
@@ -1955,6 +1956,20 @@ class StockTrader:
                 self._close_position(pos, "drawdown_kill", pos.get("current_price", pos["entry_price"]))
             return
 
+        # 4b. Session-start cooldown (2026-05-15): live data showed 77% of losses
+        # occurred in the first 90 min of the session (open volatility). Skip new
+        # entries for the first 30 min while still managing exits.
+        try:
+            evt = self.time_until_market_event()
+            if evt.get("is_open") and evt.get("next_event") == "close":
+                minutes_left = evt.get("minutes", 0)
+                # 6.5h session = 390 min; >360 min remaining means <30 min since open
+                if minutes_left > 360:
+                    logger.info(f"Session-start cooldown: {390 - minutes_left:.0f}min into session, skipping new entries")
+                    return
+        except Exception as e:
+            logger.debug(f"Session cooldown check failed: {e}")
+
         # 5. Scan universe for new entries
         signals = []
         held = {p["symbol"] for p in self.state.positions}
@@ -1964,15 +1979,11 @@ class StockTrader:
         # Static universe
         static_symbols = [s for s in ALL_SYMBOLS if s not in skip]
 
-        # Dynamic screener: discover hot stocks outside static universe
+        # Dynamic screener DISABLED 2026-05-15: live data shows screened small caps
+        # (RLYB, BAND, GHRS, PRIM, VELO, POET, MXL, HUT, LCID, MRDN, ATAI...) drove
+        # most of the -$48 loss. Rolling back to the validated 110-symbol universe.
         dynamic_symbols = []
-        try:
-            dynamic_symbols = [s for s in self.screener.screen() if s not in skip]
-        except Exception as e:
-            logger.warning(f"Dynamic screener failed: {e}")
-
-        # Merge: dynamic first (they're "hot"), then static
-        all_scan = dynamic_symbols + static_symbols
+        all_scan = static_symbols
 
         # Pre-filter via snapshots: pick the ~60 hottest symbols
         scan_symbols = self._pre_filter_snapshots(all_scan)
